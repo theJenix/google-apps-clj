@@ -79,6 +79,30 @@
   [google-ctx title description location start-time end-time attendees]
   (add-calendar-event google-ctx title description location start-time end-time attendees true))
 
+(t/ann del-calendar-event [cred/GoogleCtx String -> nil])
+(defn del-calendar-event
+  "Given a google-ctx configuration map, and a calendar event id, deletes the event from the calendar"
+  [google-ctx eventid]
+  (println "Deleting " eventid)
+  (let [calendar-service (cal/build-calendar-service google-ctx)
+        events (doto (.events ^Calendar calendar-service)
+                 assert)
+        delete-request  (doto (.delete events "primary" eventid)
+                        assert)]
+    (.execute delete-request)))
+
+(t/ann get-calendar-event [cred/GoogleCtx String -> Event])
+(defn get-calendar-event
+  "Given a google-ctx configuration map, and a calendar event id, gets the event from the calendar"
+  [google-ctx eventid]
+  (let [calendar-service (cal/build-calendar-service google-ctx)
+        events (doto (.events ^Calendar calendar-service)
+                 assert)
+        get-request  (doto (.get events "primary" eventid)
+                        assert)]
+    (cast Event (doto (.execute get-request)
+      assert))))
+
 (t/ann list-events [cred/GoogleCtx String String -> (t/Seq Event)])
 (defn list-events
   "Given a google-ctx configuration map, a start time and an end time
@@ -135,3 +159,40 @@
     (tu/ignore-with-unchecked-cast (doto (.getItems days-events)
                                      assert)
                                    (t/Seq Event))))
+
+(t/ann update-calendar-event [cred/GoogleCtx String String String String String String (t/Coll String) Boolean -> Event])
+(defn update-calendar-event
+  "Given a google-ctx configuration map, an event id, a title, a description, a location,
+   a start and end time (in YYYY-MM-DDTHH:MM:SS(+ or - hours off GMT like 4:00)),
+   and a list of attendees email addresses, update an existing calendar event"
+  [google-ctx eventid title description location start-time end-time attendees all-day?]
+  (let [calendar-service (cal/build-calendar-service google-ctx)
+        events (doto (.events ^Calendar calendar-service)
+                 assert)
+        start-time (DateTime. ^String start-time)
+        start (if all-day?
+                (doto (EventDateTime.)
+                  (.setDate start-time))
+                (doto (EventDateTime.)
+                  (.setDateTime start-time)))
+        end-time (DateTime. ^String end-time)
+        end (if all-day?
+                (doto (EventDateTime.)
+                  (.setDate end-time))
+                (doto (EventDateTime.)
+                  (.setDateTime end-time)))
+        attendees (tu/ignore-with-unchecked-cast
+                   (map #(doto (EventAttendee.)
+                           (.setEmail %)) attendees)
+                   (java.util.List EventAttendee))
+        event (doto (get-calendar-event google-ctx eventid) 
+                (.setSummary title)
+                (.setDescription description)
+                (.setLocation location)
+                (.setAttendees attendees)
+                (.setStart start)
+                (.setEnd end))
+        update-request (doto (.update events "primary" eventid event)
+                         assert)]
+    (cast Event (doto (.execute update-request)
+                  assert))))
